@@ -1,0 +1,6 @@
+{
+  "name": "Panel Perangkat Ajar Pembelajaran Mendalam Berbasis Cinta",
+  "description": "Dashboard Administrasi Guru Profesional untuk menyusun RPP, Modul Ajar, Bahan Ajar, LKPD, Asesmen, PROTA, dan PROMES berbasis Pendekatan Pembelajaran Mendalam dan Berbasis Cinta dengan bantuan AI Gemini.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
