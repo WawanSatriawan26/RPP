@@ -22,8 +22,28 @@ Pastikan alur: CP -> ATP -> Tujuan -> Materi -> Aktivitas -> Asesmen memiliki ke
 Gunakan bahasa Indonesia yang baku, formal, rapi, terstruktur, dan siap diedit oleh guru.`;
 
 export async function testGeminiConnection(settings: GeminiSettings): Promise<{ success: boolean; message: string }> {
+  // Direct test helper
+  const tryDirect = async () => {
+    if (!settings.apiKey) {
+      return { success: false, message: 'API Key Gemini belum disetel. Masukkan API Key Anda di pengaturan.' };
+    }
+    const directUrl = `https://generativelanguage.googleapis.com/v1beta/models/${settings.model || 'gemini-3.8-flash'}:generateContent?key=${settings.apiKey}`;
+    const directRes = await fetch(directUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: 'Ping test. Jawab "OK".' }] }],
+      }),
+    });
+    if (directRes.ok) {
+      return { success: true, message: 'Gemini AI berhasil terhubung langsung!' };
+    }
+    const errJson = await directRes.json().catch(() => ({}));
+    return { success: false, message: errJson.error?.message || 'Gagal terhubung ke Gemini API' };
+  };
+
   try {
-    // Try server API first
+    // Try server API first if available
     const res = await fetch('/api/gemini/test', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -38,34 +58,11 @@ export async function testGeminiConnection(settings: GeminiSettings): Promise<{ 
       return { success: true, message: data.message || 'Gemini AI berhasil terhubung!' };
     }
 
-    // Direct fallback if backend route unavailable (standalone mode)
-    if (settings.apiKey) {
-      const directUrl = `https://generativelanguage.googleapis.com/v1beta/models/${settings.model || 'gemini-3.8-flash'}:generateContent?key=${settings.apiKey}`;
-      const directRes = await fetch(directUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: 'Ping test. Jawab "OK".' }] }],
-        }),
-      });
-
-      if (directRes.ok) {
-        return { success: true, message: 'Gemini AI berhasil terhubung langsung!' };
-      }
-      const errJson = await directRes.json();
-      return { success: false, message: errJson.error?.message || 'Gagal terhubung ke Gemini API' };
-    }
-
-    const errData = await res.json().catch(() => ({}));
-    return {
-      success: false,
-      message: errData.error || 'Gemini AI tidak dapat terhubung. Silakan periksa koneksi dan API Key.',
-    };
-  } catch (err: any) {
-    return {
-      success: false,
-      message: err?.message || 'Gagal menghubungi layanan Gemini AI.',
-    };
+    // Direct fallback if server returned error or 404
+    return await tryDirect();
+  } catch (_err) {
+    // Server route failed/offline (e.g. purely static GitHub Pages deployment)
+    return await tryDirect();
   }
 }
 
@@ -80,6 +77,38 @@ export async function callGeminiAI(
 ): Promise<string> {
   const settings = storageService.getGeminiSettings();
   const sysInst = options?.customSystemInstruction || SYSTEM_INSTRUCTION_PEDAGOGI;
+
+  const tryDirectGenerate = async (): Promise<string> => {
+    if (!settings.apiKey) {
+      throw new Error('API Key Gemini belum dikonfigurasi. Silakan buka Pengaturan Gemini untuk memasukkan API Key Anda.');
+    }
+    const directUrl = `https://generativelanguage.googleapis.com/v1beta/models/${settings.model || 'gemini-3.8-flash'}:generateContent?key=${settings.apiKey}`;
+    const payload: any = {
+      systemInstruction: { parts: [{ text: sysInst }] },
+      contents: [{ parts: [{ text: prompt }] }],
+      generationConfig: {
+        temperature: options?.temperature ?? settings.temperature ?? 0.7,
+        maxOutputTokens: options?.maxOutputTokens ?? settings.maxOutputTokens ?? 4096,
+      },
+    };
+    if (options?.asJson) {
+      payload.generationConfig.responseMimeType = 'application/json';
+    }
+
+    const directRes = await fetch(directUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+
+    if (directRes.ok) {
+      const json = await directRes.json();
+      return json.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    }
+
+    const errJson = await directRes.json().catch(() => ({}));
+    throw new Error(errJson.error?.message || 'Gagal berkomunikasi langsung dengan Gemini API.');
+  };
 
   try {
     const res = await fetch('/api/gemini/generate', {
@@ -101,38 +130,16 @@ export async function callGeminiAI(
       return data.text || '';
     }
 
-    // Direct client fallback for standalone file usage
-    if (settings.apiKey) {
-      const directUrl = `https://generativelanguage.googleapis.com/v1beta/models/${settings.model || 'gemini-3.8-flash'}:generateContent?key=${settings.apiKey}`;
-      const payload: any = {
-        systemInstruction: { parts: [{ text: sysInst }] },
-        contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: {
-          temperature: options?.temperature ?? settings.temperature ?? 0.7,
-          maxOutputTokens: options?.maxOutputTokens ?? settings.maxOutputTokens ?? 4096,
-        },
-      };
-      if (options?.asJson) {
-        payload.generationConfig.responseMimeType = 'application/json';
-      }
-
-      const directRes = await fetch(directUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-
-      if (directRes.ok) {
-        const json = await directRes.json();
-        return json.candidates?.[0]?.content?.parts?.[0]?.text || '';
-      }
-    }
-
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err.error || 'Gagal memproses AI generator.');
+    // Fallback to direct client API call
+    return await tryDirectGenerate();
   } catch (error: any) {
-    console.warn('Gemini call encountered error, providing pedagogical fallback draft:', error);
-    throw error;
+    // If backend route threw or unavailable (e.g. static site on GitHub Pages)
+    try {
+      return await tryDirectGenerate();
+    } catch (directError) {
+      console.warn('Gemini call encountered error:', directError);
+      throw directError;
+    }
   }
 }
 
