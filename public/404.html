@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <title>Mengarahkan ke Panel Perangkat Ajar...</title>
+  <script>
+    // GitHub Pages SPA redirect script
+    // Automatically restores path if user opens deep link or without trailing slash
+    (function() {
+      var pathSegmentsToKeep = 1;
+      var l = window.location;
+      var repoPath = l.pathname.split('/').slice(0, 1 + pathSegmentsToKeep).join('/');
+      // Redirect to repository index
+      l.replace(
+        l.protocol + '//' + l.hostname + (l.port ? ':' + l.port : '') +
+        repoPath + '/?' +
+        (l.pathname.slice(1) ? 'p=' + encodeURIComponent(l.pathname.slice(1)) : '') +
+        (l.search ? '&q=' + encodeURIComponent(l.search.slice(1)) : '') +
+        l.hash
+      );
+    })();
+  </script>
+</head>
+<body>
+  <p style="font-family: sans-serif; text-align: center; margin-top: 50px; color: #475569;">
+    Mengarahkan ke aplikasi...
+  </p>
+</body>
+</html>
